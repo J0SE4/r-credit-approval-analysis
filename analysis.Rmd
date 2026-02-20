@@ -1,0 +1,1636 @@
+---
+title: "Análisis de Datos y Machine Learning con R (Utilizando la librería Caret)"
+subtitle: "Grupo: LLama-Cuelga"
+author: |
+  - Integrante 1 : Ismel Alejandro Oquendo Rodríguez  
+  - Integrante 2 : Joaquín Galvez Díaz
+  - Integrante 3 : Jose Pedro Solano García
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+output:
+  html_document:
+    theme: spacelab
+    highlight: kate
+    df_print: paged
+    toc: true
+    toc_float: true
+    number_sections: true
+  pdf_document:
+    toc: true
+---
+
+<style>
+/* Estilo para centrar el contenido de la portada */
+.cover-page {
+  text-align: center;
+  margin-top: 100px;
+  font-family: Arial, sans-serif;
+}
+.cover-title {
+  font-size: 36px;
+  font-weight: bold;
+}
+.cover-subtitle {
+  font-size: 24px;
+  margin-top: 20px;
+}
+.cover-authors {
+  font-size: 18px;
+  margin-top: 30px;
+  line-height: 1.8;
+}
+.cover-date {
+  font-size: 16px;
+  margin-top: 40px;
+  font-style: italic;
+}
+</style>
+
+<div class="cover-page">
+  <div class="cover-title">Análisis de Datos y Machine Learning con R (Utilizando la librería Caret)</div>
+  <div class="cover-subtitle">Grupo: Llama-Cuelga</div>
+  <div class="cover-authors">
+    Integrante 1: Ismel Alejandro Oquendo Rodríguez<br>
+    Integrante 2: Joaquín Galvez Díaz<br>
+    Integrante 3: Jose Pedro Solano García<br>
+  </div>
+  <div class="cover-date">`r format(Sys.Date(), '%d/%m/%Y')`</div>
+</div>
+
+<div style="page-break-after: always;"></div>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introducción
+En la actualidad, el aprendizaje automático juega un papel crucial en la toma de decisiones en diversas áreas, incluyendo las finanzas, la medicina y el comercio electrónico. Entre estas aplicaciones, la clasificación en el ámbito financiero es especialmente relevante debido a su impacto directo en la estabilidad económica y el acceso a servicios. Uno de los problemas más estudiados es la predicción de la aprobación de créditos, donde los algoritmos deben determinar si un solicitante es confiable o representa un riesgo para la institución financiera.
+
+En esta práctica, se trabajará con el dataset Credit Approval proporcionado por el repositorio de UCI Machine Learning. Este conjunto de datos contiene información sobre diferentes solicitantes de crédito, incluyendo variables categóricas y numéricas, como el estado civil, ingresos, historial crediticio y otras características relevantes. La tarea consiste en desarrollar un modelo de clasificación que, a partir de estas características, pueda predecir de manera precisa si una solicitud de crédito debería ser aprobada o rechazada.
+
+El proceso consta de tres fases principales: 
+- Preprocesamiento de datos, donde se analizan las variables, se tratan valores nulos y extremos, se eliminan o añaden predictores y se transforman los datos.
+- Entrenamiento de Modelos, probando al menos cuatro técnicas de clasificación, optimizando sus hiperparámetros con herramientas como TuneGrid y evaluando el impacto de diferentes preprocesamientos.
+- Comparación y Selección del Modelo Final, donde se analizan los rendimientos, se justifica la elección del modelo más adecuado y se estima su rendimiento sobre datos futuros.
+
+# Sección 1: Preprocesamiento de Datos
+
+Importamos los datos y cambiamos los nombres de los predictores basándonos en crx.names.
+
+```{r}
+ruta <- file.path("C:", "Users", "aleoq", "Documents", "AC", "credit+approval", "crx.data")
+
+credit <- read.table(ruta, header = FALSE, sep = ",")
+credit_copia <- credit
+colnames(credit_copia) <- c("A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8","A9", "A10", "A11", "A12", "A13", "A14", "A15", "A16")
+
+```
+
+Realizamos otra copia más de credit, esta vez nos la guardaremos para usarla más adelante para mostrar la correlación.
+
+```{r}
+library(ggplot2)
+library(caret)
+library(corrplot)
+
+# Creamos una copia del dataset para no modificar el original
+credit_copy <- credit_copia
+
+#A partir de hora trabajaremos con la copia 
+
+# Convertimos las variables categóricas a numéricas
+categorical_vars <- names(credit_copy)[sapply(credit_copy, is.character)]
+credit_copy[categorical_vars] <- lapply(credit_copy[categorical_vars], function(x) as.numeric(as.factor(x)))
+
+# Corregimos las variables que deberían ser numéricas 
+credit_copy$A2 <- as.numeric(credit_copy$A2)
+credit_copy$A11 <- as.numeric(credit_copy$A11)
+credit_copy$A14 <- as.numeric(credit_copy$A14)
+credit_copy$A15 <- as.numeric(credit_copy$A15)
+
+# Eliminamos los "?" convertidos en NAs 
+credit_copy[credit_copy == "?"] <- NA
+credit_copy_no_na <- na.omit(credit_copy)
+
+```
+
+```{r}
+str(credit_copia)
+```
+
+Como se puede observar, contamos con 690 observaciones y con 16 variables, de las cuales 15 son predictores y una objetivo. Si miramos con detalle la salida del "str(credit_copia)" y comparamos con la información que nos dan en el archivo "crx.names", vemos que de los 15 predictores hay 9 discretos: V1, V4, V5, V6, V7, V9, V10, V12, V13
+
+Y 6 númericos: V2, V3, V8, V11, V14, V15
+
+Cambiamos el nombre de las variables según el archivo crx.names
+
+```{r}
+colnames(credit_copia) <- c("A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8","A9", "A10", "A11", "A12", "A13", "A14", "A15", "A16")
+```
+
+Procedemos a convertir los 9 discretos a factores. Además, es importante transformar también la variable objetivo a factor, ya que nuestro problema es de clasificación, y el hecho de pasarla a factor facilita a la librería Caret el poder distinguir entre un problema de regresión y uno de clasificación.
+
+```{r}
+# Convertimos las variables discretas a factores
+credit_copia$A1 <- as.factor(credit_copia$A1)
+credit_copia$A4 <- as.factor(credit_copia$A4)
+credit_copia$A5 <- as.factor(credit_copia$A5)
+credit_copia$A6 <- as.factor(credit_copia$A6)
+credit_copia$A7 <- as.factor(credit_copia$A7)
+credit_copia$A9 <- as.factor(credit_copia$A9)
+credit_copia$A10 <- as.factor(credit_copia$A10)
+credit_copia$A12 <- as.factor(credit_copia$A12)
+credit_copia$A13 <- as.factor(credit_copia$A13)
+credit_copia$A16 <- as.factor(credit_copia$A16)
+
+```
+
+Convertimos A2 y A14 de char a númerico ya que contiene reales expresados en formato de caracter. Además transformamos también A11 y A15 de int a númerico, para tener mayor precisión y flexibilidad.
+
+```{r}
+# Convertimos A2 y A14 de character a numérico y A11 y A15 de int a numerico (mayor precision y flexibilidad)
+credit_copia$A2 <- as.numeric(credit_copia$A2)
+credit_copia$A11 <- as.numeric(credit_copia$A11)
+credit_copia$A14 <- as.numeric(credit_copia$A14)
+credit_copia$A15 <- as.numeric(credit_copia$A15)
+# Revisamos la estructura de las columnas después de la conversión
+str(credit_copia)
+levels(credit_copia$A4)
+```
+
+Si comparamos la salida del comando anterior con el apartado de "Additional Variable Information", ubicada en la descripción de los datos (<https://archive.ics.uci.edu/dataset/27/credit_copia+approval>) vemos que en la variable A4 falta el nivel "t".
+
+Procedemos a añadirlo con el siguiente comando:
+
+```{r}
+levels(credit_copia$A4)<-c(levels(credit_copia$A4),"t")
+str(credit_copia)
+levels(credit_copia$A4)
+```
+
+Como podemos observar, ahora si esta el nivel añadido.
+
+Procedemos a ordenarlo todo como en el apartardo de "Additional Variable Information".
+
+```{r}
+credit_copia$A1 <- factor(credit_copia$A1, levels = c("b", "a"))
+credit_copia$A4 <- factor(credit_copia$A4, levels = c("u", "y", "l", "t"))
+credit_copia$A6 <- factor(credit_copia$A6, levels = c("c", "d", "cc", "i", "j", "k", "m", "r", "q", "w", "x", "e", "aa", "ff"))
+credit_copia$A7 <- factor(credit_copia$A7, levels = c("v", "h", "bb", "j", "n", "z", "dd", "ff", "o"))
+credit_copia$A9 <- factor(credit_copia$A9, levels = c("t", "f"))
+credit_copia$A10 <- factor(credit_copia$A10, levels = c("t", "f"))
+credit_copia$A12 <- factor(credit_copia$A12, levels = c("t", "f"))
+credit_copia$A13 <- factor(credit_copia$A13, levels = c("g", "p", "s"))
+credit_copia$A16 <- factor(credit_copia$A16, levels = c("+", "-"))
+colSums(is.na(credit_copia))
+
+```
+
+Al ejecutar el comando para ver los datos, nos damos cuenta de que tenemos varios datos los cuales son desconocidos. Procedemos a marcar esos datos desconocidos como nulos, puesto que no son muchos y no causara mucho sesgo.
+
+```{r}
+credit_copia[credit_copia == "?"] <- NA
+```
+
+```{r}
+colSums(is.na(credit_copia))
+```
+
+Ahora creamos la variable credit_copia pero sin NA's, omitiendo de momento los nulos, los cuales serán tratados más adelante.
+
+```{r}
+credit.No.NA<- na.omit(credit_copia)
+str(credit.No.NA)
+colSums(is.na(credit.No.NA))
+```
+
+Eliminamos los niveles vacíos de los factores y los reconvertimos asegurandonos de que solo queden los niveles con datos válidos.
+
+```{r}
+# Eliminamos niveles vacíos y reconvertimos a factores
+categorical_vars <- names(credit.No.NA)[sapply(credit.No.NA, is.factor)]
+
+credit.No.NA[categorical_vars] <- lapply(credit.No.NA[categorical_vars], function(x) {
+  if (is.factor(x)) {
+    x <- factor(x)
+  }
+  return(x)
+})
+
+```
+
+Ahora representaremos todas las variables de factores para verlo de una manera más visual, comparando dichas graficas con la salida del summary(credit).
+
+```{r}
+library(ggplot2)
+
+# Filtramos solo las columnas categóricas (factores) en el dataset
+categorical_vars <- names(credit.No.NA)[sapply(credit.No.NA, is.factor)]
+
+# Generamos los gráficos de barras para cada variable 
+for (var in categorical_vars) {
+  plotdata <- data.frame(table(credit.No.NA[[var]]))
+  colnames(plotdata) <- c("Level", "Count")
+  
+  # Creamos los gráficos
+  p <- ggplot(data = plotdata, aes(x = Level, y = Count, fill = Level)) +
+    geom_col() +
+    ggtitle(paste("Distribución de la Variable", var)) +
+    xlab(paste("Niveles de", var)) +
+    ylab("Frecuencia") +
+    theme_minimal()
+  
+  # Mostramos los gráficos
+  print(p)
+}
+
+# Hacemos un summary de las variables categóricas
+summary(credit.No.NA[sapply(credit.No.NA, is.factor)])
+```
+
+Exceptuando las variables A9, A10, A12, en el resto, podemos destacar que siempre hay un nivel que sobresale por encima de los demás, y es dicho nivel el que posee la mayoría de los datos.
+
+```{r}
+# Filtramos las variables numéricas
+numeric_vars <- names(credit.No.NA)[sapply(credit.No.NA, is.numeric)]
+
+# Creamos histogramas para cada variable numérica, con media y mediana.
+for (var in numeric_vars) {
+  # Calculamos la densidad de la variable para ajustar el eje Y
+  dens <- density(credit.No.NA[[var]], na.rm = TRUE)
+  
+  # Ajustamos el límite del eje X y el número de bins si la variable es A15
+  if (var == "A15") {
+    x_lim <- c(0, 10000)  
+    num_bins <- 50        
+  } else {
+    x_lim <- range(credit.No.NA[[var]], na.rm = TRUE)  
+    num_bins <- 20       
+  }
+  
+  # Creamos el histograma con media y mediana
+  hist(credit.No.NA[[var]], 
+       main = paste("Histograma de la Variable", var),
+       xlab = var, 
+       ylab = "Frecuencia",
+       col = "skyblue", 
+       border = "black",
+       ylim = c(0, max(dens$y) * 1.1), 
+       xlim = x_lim,  
+       breaks = num_bins, 
+       probability = TRUE) 
+  
+  # Añadimos líneas para la media y la mediana
+  abline(v = mean(credit.No.NA[[var]], na.rm = TRUE), col = "red", lwd = 2)  # Media (línea continua)
+  abline(v = median(credit.No.NA[[var]], na.rm = TRUE), col = "purple", lwd = 2)  # Mediana (línea continua)
+  
+  # Metemos la leyenda
+  legend("topright", legend = c("Media", "Mediana"), col = c("red", "purple"), lwd = 2)
+}
+
+summary(credit.No.NA$A2)
+summary(credit.No.NA$A3)
+summary(credit.No.NA$A8)
+summary(credit.No.NA$A11)
+summary(credit.No.NA$A14)
+summary(credit.No.NA$A15)
+```
+
+Hacemos un summary para mostrar las características de nuestros datos.
+
+El summary de las variables numéricas del dataset credit.No.NA nos muestra varias características importantes para entender la distribución de cada variable. Para cada columna, se presenta el valor mínimo (el más bajo registrado), el primer cuartil (1st Qu.) que indica el valor por debajo del cual se encuentra el 25% de los datos, la mediana (Median) que es el valor que divide los datos en dos partes iguales, la media (Mean) que representa el promedio de todos los valores, el tercer cuartil (3rd Qu.) que muestra el valor por debajo del cual se encuentra el 75% de los valores, y el valor máximo (Max.) que es el valor más alto registrado.
+
+Si nos fijamos en los histogramas anteriores, es decir, en los histogramas de las variables "númericas", vemos que ninguna sigue una distribución normal clara. Basicamente lo que observamos es un sesgo a la derecha (Right-Skewed), con la mayoría de los valores concentrados hacia la izquierda del histograma y una "cola" larga hacia la derecha. Esto se traduce en que la mayoria de las variables tienen un alta concentración de valores en el extremo inferior y van disminuyendo conforme nos acercamos a los valores más altos del eje 'X'. Suponemos que esto es algo común en situaciones en las cuales tenemos una mayoría de casos "típicos" junto a un número reducido de casos extremos.
+
+## Análisis Monovariable
+
+Procedemos ahora a realizar el análisis monovariable de las variables A2, A3 y A6.
+
+```{r}
+# Histograma enriquecido para la variable A2 con media y mediana
+dens_A2 <- density(credit.No.NA$A2, na.rm = TRUE)
+hist(credit.No.NA$A2, xlab = "Valores de A2",
+     main = "Histograma enriquecido de la variable A2",
+     ylim = c(0, max(dens_A2$y) * 1.1), probability = TRUE,
+     col = "lightblue", border = "black")
+lines(dens_A2, col = "darkblue", lwd = 2)
+rug(jitter(credit.No.NA$A2))
+
+# Añadimos líneas para la media y la mediana
+abline(v = mean(credit.No.NA$A2, na.rm = TRUE), col = "red", lwd = 2)  # Media (línea continua)
+abline(v = median(credit.No.NA$A2, na.rm = TRUE), col = "purple", lwd = 2)  # Mediana (línea continua)
+legend("topright", legend = c("Media", "Mediana"), col = c("red", "purple"), lwd = 2)
+
+# Histograma enriquecido para la variable A3 con media y mediana
+dens_A3 <- density(credit.No.NA$A3, na.rm = TRUE)
+hist(credit.No.NA$A3, xlab = "Valores de A3",
+     main = "Histograma enriquecido de la variable A3",
+     ylim = c(0, max(dens_A3$y) * 1.1), probability = TRUE,
+     col = "lightgreen", border = "black")
+lines(dens_A3, col = "darkgreen", lwd = 2)
+rug(jitter(credit.No.NA$A3))
+
+abline(v = mean(credit.No.NA$A3, na.rm = TRUE), col = "red", lwd = 2)  # Media (línea continua)
+abline(v = median(credit.No.NA$A3, na.rm = TRUE), col = "purple", lwd = 2)  # Mediana (línea continua)
+legend("topright", legend = c("Media", "Mediana"), col = c("red", "purple"), lwd = 2)
+
+# Histograma enriquecido para la variable A6 con media y mediana
+credit.No.NA$A6_numeric <- as.numeric(credit.No.NA$A6)
+dens_A6 <- density(credit.No.NA$A6_numeric, na.rm = TRUE)
+hist(credit.No.NA$A6_numeric, xlab = "Valores de A6",
+     main = "Histograma enriquecido de la variable A6",
+     ylim = c(0, max(dens_A6$y) * 1.1), probability = TRUE,
+     col = "lightpink", border = "black")
+lines(dens_A6, col = "darkred", lwd = 2)
+rug(jitter(credit.No.NA$A6_numeric))
+
+abline(v = mean(credit.No.NA$A6_numeric, na.rm = TRUE), col = "red", lwd = 2)  # Media (línea continua)
+abline(v = median(credit.No.NA$A6_numeric, na.rm = TRUE), col = "purple", lwd = 2)  # Mediana (línea continua)
+legend("topright", legend = c("Media", "Mediana"), col = c("red", "purple"), lwd = 2)
+
+
+```
+
+El histograma anterior lo hemos representado utilizando el comando rug() (visualizando así las observaciones de la variable bajo el eje x). Tambien usamos jitter() para añadir un poco de ruido aleatorio a las observaciones, por si hubiese valores repetidos y, de este modo, aparezcan como una línea más gruesa.
+
+En los histogramas enriquecidos de las variables A2, A3 y A6, observamos que en A2 y A3 tenemos una distribución sesgada a la derecha (Right-Skewed), como habiamos dicho anteriormente, en resumen, concentración en valores bajos junto falta de frecuencia en valores altos. No obstante, tenemos un contraste en la variable A6, al ser originalmente categórica y convertida a numérica, nos muestra una distribución relativamente uniforme, con una representación más equitativa de los valores.
+
+```{r}
+library(caret)
+
+# Filtramos las filas completas para A2, A3, A6 y A16 (sin NA)
+complete_data <- credit.No.NA[, c("A2", "A3", "A6", "A16")]
+complete_data <- complete_data[complete.cases(complete_data), ]
+
+# Convertimos la variable objetivo a factor para usarla en featurePlot
+y_class <- as.factor(complete_data[, "A16"])
+
+# Convertimos x_vars a numérico para evitar problemas de tipo de datos
+x_vars <- complete_data[, c("A2", "A3", "A6"), drop = FALSE]
+x_vars[] <- lapply(x_vars, as.numeric)
+
+# Comprobamos si el número de filas coincide
+if (nrow(x_vars) != length(y_class)) {
+  stop("El número de filas no coincide entre x e y.")
+}
+
+# Hacemos el gráfico de densidad para la variable A2
+featurePlot(
+  x = x_vars[, "A2", drop = FALSE], 
+  y = y_class,                       # Usamos A16 como la clase
+  plot = "density",
+  scales = list(relation = "free"),
+  main = "Gráfico de Densidad para A2 Agrupado por A16"
+)
+
+# Gráfico de densidad para la variable A3
+featurePlot(
+  x = x_vars[, "A3", drop = FALSE],  
+  y = y_class,                       
+  plot = "density",
+  scales = list(relation = "free"),
+  main = "Gráfico de Densidad para A3 Agrupado por A16"
+)
+
+# Gráfico de densidad para la variable A6
+featurePlot(
+  x = x_vars[, "A6", drop = FALSE],  
+  y = y_class,                       
+  plot = "density",
+  scales = list(relation = "free"),
+  main = "Gráfico de Densidad para A6 Agrupado por A16"
+)
+
+```
+
+Los gráficos de densidad de las variables A2, A3 y A6, agrupados por la clase A16, nos muestran cómo se distribuyen los datos para cada clase. En el gráfico de A2, vemos que las clases (+ y -) presentan una distribución parecida, pero con diferencias en la altura de los picos, lo cual nos indica una variación en la frecuencia de los valores bajos (20-30). En A3, ambas clases presentan un pico pronunciado en valores bajos (alrededor de 0-5), pero con una clase más concentrada en valores menores. En A6, la variable muestra dos picos en la densidad, reflejando el hecho de que estamos tratando con categóricos convertidos a numéricos, y una diferencia notable en cómo se distribuyen los niveles para cada clase.
+
+Para mostrar los outliers de forma más visual, vamos a utilizar un diagrama "Box & Whiskers"
+
+```{r}
+# Whisker-Plot usando gráficos tradicionales
+boxplot(credit.No.NA[[2]],credit.No.NA[[3]],credit.No.NA[[6]],names = c("A2",
+"A3", "A6"))
+```
+
+Del diagrama de caja de bigotes podemos decir varias cosas, la primera es que A2 y A3 tienen bastantes valores extremos, con los cuales hay que tener cuidado más adelante, ya que puede interferir con algún que otro algoritmo que vayamos a utilizar.
+
+## Análisis Multivariable
+
+```{r}
+library(caret)
+
+# Data frame solo con A11 y A15
+pairs_data <- credit.No.NA[, c("A14", "A3")]
+
+# Dibujar el gráfico con featurePlot
+featurePlot(x = pairs_data,
+            y = credit_copia$A16,
+            plot = "pairs",
+            labels = c("Feature", "Credit Approval"))
+
+
+```
+
+En la primera gráfica vemos las relaciones de todas las variables númericas utilizando una matriz codificada por colores. Las correlaciones positivas se muestran en azul y las negativas en rojo. La intensidad del color indica la "fuerza" de la correlación y los números de dentro de las celdas representan los coeficientes exactos de correlación. Nosotros procederemos a utilizar la correlación de la variable A11 con A15 para el análisis multivariable, puesto que es la correlación con más fuerza (es la pareja que tiene el coeficiente de correlación positivo más alto).
+
+
+## Tratamiento de Valores Nulos
+
+```{r}
+colSums(is.na(credit_copia))
+
+```
+
+Como podemos observar, el dataset contiene datos nulos, siendo la variable A14 el predictor que más tiene.
+
+Ahora lo que vamos a hacer es aplicar una estrategia para tratar los nulos. Lo que haremos es imputar los valores nulos de factores con la moda y los valores nulos númericos con la mediana.
+
+```{r}
+clean_na_values <- function(data) {
+  for (col in names(data)) {
+    if (is.factor(data[[col]])) {
+      # Imputamos los valores nulos con la moda para factores
+      mode_value <- names(sort(table(data[[col]]), decreasing = TRUE))[1]
+      data[[col]][is.na(data[[col]])] <- mode_value
+    } else if (is.numeric(data[[col]])) {
+      # Imputamos los valores nulos con la mediana para variables numéricas
+      median_value <- median(data[[col]], na.rm = TRUE)
+      data[[col]][is.na(data[[col]])] <- median_value
+    }
+  }
+  return(data)
+}
+
+# Aplicamos la función al dataset
+credit_copia <- clean_na_values(credit_copia)
+
+# Verificamos que ya no haya valores nulos
+colSums(is.na(credit_copia))
+
+```
+## Análisis de Componentes Principales (PCA)
+
+Esta técnica se suele utilizar en datasets con más predictores que ejemplares. Consiste en seleccionar las variables más representativas, reduciendo la dimensionalidad del dataset. 
+Como nuestro dataset no cumple la condición anterior y estamos ante un problema de clasificación (PCA no optimiza la separación de clases), creemos que no sería útil realizar el PCA.
+
+Ahora vamos a demostrar que no es útil el análisis de componentes principales (PCA) para nuestro caso. Para PCA, tenemos que tratar los NA's y convertir las variables categóricas a númericas.
+
+```{r}
+library(dplyr)
+
+# Convertimos variables categóricas en factores y luego en números
+credit_pca <- credit.No.NA %>%
+  lapply(function(x) {
+    if (is.factor(x)) as.numeric(as.factor(x)) else x
+  }) %>%
+  data.frame()
+
+X <- credit_pca[, -ncol(credit_pca)]  # Variables predictoras
+y <- credit.No.NA$A16  # Clase objetivo como "+"/"-"
+
+# Escalamos datos y hacemos PCA
+pca_result <- prcomp(X, center = TRUE, scale. = TRUE)
+
+# Resumen del PCA
+print(summary(pca_result))
+
+# Dataframe con los componentes principales y la clase
+pca_data <- data.frame(PC1 = pca_result$x[, 1], PC2 = pca_result$x[, 2], Class = y)
+
+if (!require(ggplot2)) install.packages("ggplot2")
+library(ggplot2)
+
+# Ploteamos los dos primeros componentes principales
+ggplot(pca_data, aes(x = PC1, y = PC2, color = Class)) +
+  geom_point(size = 2) +
+  labs(title = "PCA: Primeros dos componentes principales",
+       x = "Componente Principal 1",
+       y = "Componente Principal 2",
+       color = "Clase") +
+  theme_minimal() +
+  scale_color_manual(values = c("+" = "blue", "-" = "red"), name = "Clase")
+
+
+```
+
+Según la información recabada en Internet, un PCA es útil si los dos o tres primeros componentes principales tienen una alta proporción de la varianza total de los datos (entre el 85% y el 90%).
+
+Si nos fijamos en la salida de la terminal, vemos que la proporción de la varianza para el primer componente es 20% y para el segundo componente es 11%, por lo tanto, no se alcanza el 85% de la varianza. Para conseguir llegar a este porcentaje nos haría falta utilizar los 10 primeros componentes como mínimo.
+
+Observando el scatter plot vemos que las clases tienen un alto solapamiento, reafirmando una vez más que aplicar PCA no nos resultaría útil.
+
+## Tramiento de Outliers
+
+Ahora vamos a tratar los outliers, empezando por poder visualizarlos. Lo haremos mediante los diagramas de caja de bigotes (Box & Whisker Plot).
+
+```{r}
+# Variables numéricas a plotear
+numeric_vars <- c("A2", "A3", "A8", "A11", "A14", "A15")
+
+# Creamos boxplot para cada variable numérica
+for (var in numeric_vars) {
+  
+  if (var == "A15") {
+    boxplot(credit_copia[[var]],
+            boxwex = 0.15,
+            ylab = paste("Variable:", var),
+            main = paste("Boxplot de la Variable", var, "(Visión General)"),
+            col = "lightblue",
+            border = "black",
+            ylim = c(0, 110000), 
+            na.action = na.omit) 
+    
+    # Rug de valores en el lado derecho después de eliminar los NA
+    rug(jitter(credit_copia[[var]][!is.na(credit_copia[[var]])]), side = 2)
+    
+    # Línea horizontal con la media
+    abline(h = mean(credit_copia[[var]], na.rm = TRUE), lty = 1, col = "red", lwd = 2)
+    
+    # Boxplot específico para la variable A15
+    boxplot(credit_copia[[var]],
+            boxwex = 0.15,
+            ylab = paste("Variable:", var),
+            main = paste("Boxplot de la Variable", var, "(Detalle hasta 5000)"),
+            col = "lightblue",
+            border = "black",
+            ylim = c(0, 5000),  
+            na.action = na.omit)
+    
+    rug(jitter(credit_copia[[var]][!is.na(credit_copia[[var]])]), side = 2)
+    
+    # Línea horizontal con la media
+    abline(h = mean(credit_copia[[var]], na.rm = TRUE), lty = 1, col = "red", lwd = 2)
+    
+  } else {
+    boxplot(credit_copia[[var]],
+            boxwex = 0.15,
+            ylab = paste("Variable:", var),
+            main = paste("Boxplot de la Variable", var),
+            col = "lightblue",
+            border = "black",
+            na.action = na.omit) 
+    
+    # Rug de valores en el lado derecho
+    rug(jitter(credit_copia[[var]][!is.na(credit_copia[[var]])]), side = 2)
+    
+    # Línea horizontal con la media
+    abline(h = mean(credit_copia[[var]], na.rm = TRUE), lty = 1, col = "red", lwd = 2)
+  }
+}
+
+```
+
+En los diagramas anteriores observamos que nuestras variables númericas cuentan con diversos outliers. La línea roja representa la media de cada variable. Podemos observar que todos los outliers se encuentran por arriba en todas las variables. Curiosamente, vemos que en todas las variables, la media está siempre por encima de la mediana, de aquí podemos obtener información como que la media está parcialmente distorsionado por los outliers.
+
+Este gráfico considera que un dato es un outlier si cumple el criterio de Tukey, es decir, que si un valor está más alla de 3/2 de la diferencia entre los valores de Q3 y Q1 se considera un outlier.
+
+Estos son los valores considerados como outliers:
+
+```{r}
+# Variables numéricas a plotear
+numeric_vars <- c("A2", "A3", "A8", "A11", "A14", "A15")
+
+# Boxplot para cada variable
+for (var in numeric_vars) {
+  # Creamos el boxplot y quitamos los valores atípicos
+  outliers <- boxplot(credit_copia[[var]],
+                      boxwex = 0.15,
+                      ylab = paste("Variable:", var),
+                      main = paste("Boxplot de la Variable", var),
+                      col = "lightblue",
+                      border = "black",
+                      na.action = na.omit, 
+                      plot = FALSE)$out 
+  
+  cat("Valores atípicos para la variable", var, ":", outliers, "\n")
+}
+
+```
+
+Es más, vamos a ver cuantos outliers tiene cada variable:
+
+```{r}
+# Variables numéricas a analizar
+numeric_vars <- c("A2", "A3", "A8", "A11", "A14", "A15")
+
+# Contamos los outliers para cada variable numérica
+for (var in numeric_vars) {
+  # Extraemos outliers utilizando boxplot sin graficar
+  outliers <- boxplot(credit_copia[[var]], plot = FALSE)$out
+  count_outliers <- length(outliers)
+  
+  # Mostramos el número de valores atípicos en la consola
+  cat("Número de outliers en la variable", var, ":", count_outliers, "\n")
+}
+```
+
+Ahora procederemos a eliminar dichos outliers. Para ello nos basaremos en el método de Tukey. Primero, nos haremos con las columnas del dataframe que sean númericas para posterioremente crear una copia de dichos datos para evitar modificar directamente el dataset (lo hemos estado haciendo todo el rato por si acaso). A continuación calculamos Q1 y Q3 (primer y tercel cuartil) junto con la IQR (diferencia entre primer y tercel cuartil). Luego definiremos los límites de los outliers usando 1.5 \* IQR como frontera, puesto que los valores fuera de estos límites se consideran outliers. Por tanto, si un valor es menor que el límite inferior, se reemplazo por el valor del límite inferior,y si un valor es, mayor al límite superior, se reemplaza por el valor del límite superior. Después sacamos un resumen de las columnas númericas del dataset limpio.
+
+```{r}
+#Quitamos outliers con el método de Tukey
+remove_outliers <- function(data) {
+  numeric_cols <- sapply(data, is.numeric)
+  numeric_names <- names(data)[numeric_cols]
+
+#Creamos copia de los datos
+  clean_data <- data
+
+#Procesamos cada columna númerica
+for (col in numeric_names) {
+    # Calculate Q1, Q3 and IQR
+Q1 <- quantile(data[[col]], 0.25, na.rm = TRUE)
+Q3 <- quantile(data[[col]], 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+
+#Definimos los límites de los outliers
+    lower_bound <- Q1 - 1.5 * IQR 
+    upper_bound <- Q3 + 1.5 * IQR
+
+#Reemplazamos los outliers
+clean_data[[col]] <- ifelse(data[[col]] < lower_bound, lower_bound,
+                               ifelse(data[[col]] > upper_bound, upper_bound, 
+                                     data[[col]]))
+  }
+
+  return(clean_data)
+}
+
+#Eliminamos outliers
+credit_clean <- remove_outliers(credit_copia)
+
+#Resumen de las columnas númericas antes y después de eliminar los outliers
+numeric_cols <- sapply(credit_copia, is.numeric)
+numeric_names <- names(credit_copia)[numeric_cols]
+
+cat("Antes de eliminar outliers:\n")
+print(summary(credit_copia[numeric_names]))
+
+cat("\nDespués de eliminar outliers:\n") 
+print(summary(credit_clean[numeric_names]))
+```
+
+Aquí comprobamos que los outliers se han eliminado correctamente, como se puede observar, no hay ninguno en ninguna variable númerica.
+
+```{r}
+# Variables numéricas a plotear
+numeric_vars <- c("A2", "A3", "A8", "A11", "A14", "A15")
+
+# Creamos boxplot para cada variable numérica
+for (var in numeric_vars) {
+  
+  if (var == "A15") {
+    boxplot(credit_clean[[var]],
+            boxwex = 0.15,
+            ylab = paste("Variable:", var),
+            main = paste("Boxplot de la Variable", var, "(Visión General)"),
+            col = "lightblue",
+            border = "black",
+            ylim = c(0, 110000),  
+            na.action = na.omit) 
+    
+    rug(jitter(credit_clean[[var]][!is.na(credit_clean[[var]])]), side = 2)
+    
+    # Línea horizontal con la media
+    abline(h = mean(credit_clean[[var]], na.rm = TRUE), lty = 1, col = "red", lwd = 2)
+    
+    boxplot(credit_clean[[var]],
+            boxwex = 0.15,
+            ylab = paste("Variable:", var),
+            main = paste("Boxplot de la Variable", var, "(Detalle hasta 5000)"),
+            col = "lightblue",
+            border = "black",
+            ylim = c(0, 5000),  
+            na.action = na.omit) 
+    
+    # Rug de valores en el lado derecho 
+    rug(jitter(credit_clean[[var]][!is.na(credit_clean[[var]])]), side = 2)
+    
+    # línea horizontal con la media
+    abline(h = mean(credit_clean[[var]], na.rm = TRUE), lty = 1, col = "red", lwd = 2)
+    
+  } else {
+    boxplot(credit_clean[[var]],
+            boxwex = 0.15,
+            ylab = paste("Variable:", var),
+            main = paste("Boxplot de la Variable", var),
+            col = "lightblue",
+            border = "black",
+            na.action = na.omit) 
+    
+    # Rug de valores en el lado derecho 
+    rug(jitter(credit_clean[[var]][!is.na(credit_clean[[var]])]), side = 2)
+    
+    # línea horizontal con la media
+    abline(h = mean(credit_clean[[var]], na.rm = TRUE), lty = 1, col = "red", lwd = 2)
+  }
+}
+```
+
+```{r}
+numeric_vars <- c("A2", "A3", "A8", "A11", "A14", "A15")
+
+for (var in numeric_vars) {
+  outliers <- boxplot(credit_clean[[var]],
+                      boxwex = 0.15,
+                      ylab = paste("Variable:", var),
+                      main = paste("Boxplot de la Variable", var),
+                      col = "lightblue",
+                      border = "black",
+                      na.action = na.omit,
+                      plot = FALSE)$out 
+  
+  cat("Valores atípicos para la variable", var, ":", outliers, "\n")
+}
+```
+## Eliminación de variables superfluas
+
+Como no es buena idea tener un modelo con variables con poca varianza, debido a que estas aportan poca información al análisis, vamos a verificar la varianza de las variables a ver que vemos.
+
+```{r}
+nearZeroVar(credit_clean)
+```
+
+En nuestro caso no tenemos ninguna variable con poca varianza, asi que no eliminaremos ninguna de estas.
+
+También vamos a verificar si hay variables correladas, ya que esto implicaría redundancia en la información, afectando a la interpretación y eficiencia del modelo. En el caso de que las hubiera las eliminamos.
+
+Ahora vamos a plotear la matriz de correlación:
+
+```{r}
+# Librerías necesarias
+library(ggplot2)
+library(caret)
+library(corrplot)
+
+# Mostramos la cantidad de valores NA antes y después del filtrado
+cat("Valores NA antes de omitir:\n")
+colSums(is.na(credit_copy))
+cat("Valores NA después de omitir:\n")
+colSums(is.na(credit_copy_no_na))
+
+# Matriz de correlación con la copia sin valores NA
+cor_matrix <- cor(credit_copy_no_na, use = "complete.obs")
+
+par(mfrow = c(1, 1))  # Restablecer la configuración de los gráficos
+
+# Matriz de correlación con ajustes para mejorar la visibilidad
+corrplot(cor_matrix, 
+         method = "color",      
+         type = "upper",        
+         order = "hclust",      
+         addCoef.col = "black", 
+         tl.col = "black",      
+         tl.cex = 0.8,          
+         number.cex = 0.6,     
+         cl.cex = 0.8,          
+         tl.srt = 45,          
+         diag = FALSE)         
+
+
+```
+
+Como vemos, A4 y A5 tienen una alta correlación, por tanto sería buena idea eliminar una de las dos.
+Hacemos un summary para ver esas dos variables especificas.
+
+
+```{r}
+summary(credit_copy_no_na$A4) 
+summary(credit_copy_no_na$A5) 
+```
+Como vemos, A4 y A5 son muy parecidas, compartiendo los mismos números en sus niveles. La 'u', 'y', 'l' y la 't' de A4 tienen los mismo niveles que la 'g', 'p', 'gg' y '?' de A5 respectivamente.
+
+Por tanto, decidimos eliminar la variable A5 por ejemplo.
+
+```{r}
+credit_clean <- credit_clean[, !names(credit_clean) %in% "A5"]  # Reemplaza "A5" por el nombre real de la columna
+str(credit_clean)
+```
+
+Ahora vamos a ver la importancia de las variables predictoras con la variable objetivo. Para ello vamos a utilizar la correlación de Pearson.
+
+```{r}
+# Librerías necesarias
+library(ggplot2)
+
+# Variable objetivo y predictoras
+target_var <- "A16"  
+predictor_vars <- setdiff(names(credit_clean), target_var)
+
+# Convertimos todas las variables predictoras y la variable objetivo a numéricas
+credit_clean_num <- credit_clean
+credit_clean_num[] <- lapply(credit_clean_num, function(x) as.numeric(as.factor(x)))
+
+# Aplicar cor.test() a cada variable predictora
+pvals <- sapply(predictor_vars, function(var) {
+  cor.test(x = credit_clean_num[[var]], 
+           y = credit_clean_num[[target_var]], 
+           method = "pearson")$p.value
+})
+
+# DataFrame con los resultados
+cor_results <- data.frame(
+  caracteristicas = predictor_vars,
+  pvalores = pvals,
+  significativo = ifelse(pvals < 0.05, "Sí", "No")
+)
+
+# Mostramos resultados
+print(cor_results)
+
+# Gráfico de resultados
+ggplot(cor_results, aes(x = caracteristicas, y = -log10(pvalores), fill = significativo)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = -log10(0.05), color = "red", linetype = "dashed") +
+  labs(title = "Significancia de las Correlaciones",
+       x = "Características",
+       y = "-log10(p-valor)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Como vemos, las variables A1, A6 y A12 son representadas como no significativas. Más adelante, realizaremos un preprocesado donde eliminaremos una de estas variables.
+
+## Transformación de datos
+
+Ahora vamos a escalar las variables para normalizarlas y ponerlas todas en una escala común, esto evitará distorsiones debido a diferencias de magnitud.
+
+En cuanto al entrenamiento de modelos, normalizar previene problemas en algoritmos sensibles al escalado y se evita que variables de mayor magnitud dominen a otras, asegurando que todas las características relevantes puedan contribuir adecuadamente al ajuste del modelo. 
+
+Vamos a aplicar "center" y "scale" para ajustar la distribución de las variables a una normal.
+
+```{r}
+library(caret)
+
+# Aplicamos escalado "center" y "scale" a las variables numéricas
+preProc <- preProcess(credit_clean[, numeric_vars], method = c("center", "scale"))
+credit_escalado <- predict(preProc, credit_clean)
+summary(credit_escalado)
+```
+
+```{r}
+library(lattice)
+
+# Variables numéricas a representar
+VarToPlot <- c("A2", "A3", "A8", "A11", "A14", "A15")
+
+# Gráfico de densidad para las variables Escaladas
+d1 <- densityplot(
+  formula(paste("~", paste(VarToPlot, sep = "", collapse = " + "), collapse = "")),
+  data = credit_escalado,
+  main = "Variables Escaladas",
+  plot.points = FALSE,
+  col = "blue"
+)
+
+# Gráfico de densidad para las variables sin escalar
+d2 <- densityplot(
+  formula(paste("~", paste(VarToPlot, sep = "", collapse = " + "), collapse = "")),
+  data = credit_clean,
+  main = "Variables Sin Escalar",
+  plot.points = FALSE,
+  col = "red"
+)
+
+# Comparar ambos gráficos
+print(d1)
+print(d2)
+
+
+```
+
+
+```{r}
+library(dplyr)
+
+numeric_vars_clean <- credit_clean %>%
+  select(where(is.numeric)) %>%
+  names()
+
+numeric_vars_scaled <- credit_escalado %>%
+  select(where(is.numeric)) %>%
+  names()
+
+cat("Variables originales (credit_clean):\n")
+print(summary(credit_clean[numeric_vars_clean]))
+
+cat("\nVariables Escaladas (credit_escalado):\n")
+print(summary(credit_escalado[numeric_vars_scaled]))
+
+cat("\nVerificación del escalado (credit_escalado):\n")
+for (var in numeric_vars_scaled) {
+  cat(sprintf("%s: media = %.3f, sd = %.3f\n",
+              var,
+              mean(credit_escalado[[var]], na.rm = TRUE),
+              sd(credit_escalado[[var]], na.rm = TRUE))
+  )
+}
+
+
+```
+
+
+Como podemos observar, las variables escaladas han sido centradas y normalizadas. Mientras que si nos fijamos en el gráfico de las variables sin escalar, vemos que existe una gran disparidad en las escalas de las variables, 
+algunas tienen valores extremadamente grandes, generando picos pronunciados.
+
+Como suele ser mejor trabajar con distribuciones simétricas, debido a que muchos modelos funcionan mejor con datos gausianos, vamos a probar a trasformar la variable A3 a gausiana, para poder ver lo que haremos más adelante con todas las variables. Hemos escogido la variable A3 para hacerla lo más "gausiana" posible, puesto que, si recordamos bien, la variable A3 es "Right Skewed".
+Utilizaremos el método Yeo-Johnson para mejorar la simetría de su distribución. Empleamos Yeo-Johnson en vez de Box-Cox porque contamos con valores negativos, siendo Yeo-Johnson la mejor opción. 
+
+```{r}
+# Cargar las librerías necesarias
+library(ggplot2)
+library(caret)
+library(reshape2)
+library(gridExtra)
+library(dplyr)
+
+# Aplicamos la transformación Yeo-Johnson a la variable A3 del conjunto de entrenamiento escalado
+numeric_var <- "A3"  # Solo consideraremos A3
+preProc <- preProcess(credit_escalado[, numeric_var, drop = FALSE], method = c("YeoJohnson"))
+credit_clean_YJ <- predict(preProc, credit_escalado)
+
+# Verificamos la transformación aplicada
+summary(credit_clean_YJ)
+
+# Ploteamos la variable A3 antes y después de la transformación
+plot_hist_comparison <- function(var, datos_orig, datos_transf, titulo) {
+  # Histograma original
+  p1 <- ggplot(data.frame(valor = datos_orig[[var]]), aes(x = valor)) +
+    geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "lightblue", color = "black") +
+    geom_density(color = "red") +
+    ggtitle(paste("Original:", titulo)) +
+    theme_minimal()
+  
+  # Histograma transformado
+  p2 <- ggplot(data.frame(valor = datos_transf[[var]]), aes(x = valor)) +
+    geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "lightblue", color = "black") +
+    geom_density(color = "red") +
+    ggtitle(paste("Transformado:", titulo)) +
+    theme_minimal()
+  
+  # Mostramos los gráficos uno al lado del otro
+  grid.arrange(p1, p2, ncol = 2)
+}
+
+# Ploteamos la variable A3 antes y después de la transformación
+plot_hist_comparison("A3", credit_escalado, credit_clean_YJ, "A3")
+
+```
+
+Como vemos, aunque no sea una gaussiana total, podemos ver que la transformación ha logrado redistribuir un poco más los valores, reduciendo el sesgo (distribuimos más uniformemente los valores) y dandole una forma más cercana a una distribución simétrica, aunque obviamente no es completamente una normal.
+
+
+# Sección 2: Entrenamiento de Modelos.
+
+Procedemos a dividir el dataset en los datos de entrenamiento y de test utilizando los índices del fichero "credit.trainIdx.rds".
+
+
+```{r}
+library(caret)
+set.seed(1234)
+
+credit.Datos.Todo <- credit_clean
+credit.Vars.Salida <- c("A16")
+credit.Vars.Entrada <- setdiff(names(credit.Datos.Todo), credit.Vars.Salida)
+
+credit.Datos.Usados <- cbind(credit.Datos.Todo[credit.Vars.Entrada],
+                            credit.Datos.Todo[credit.Vars.Salida])
+
+credit.trainIdx<-readRDS("credit.trainIdx.rds")
+credit.Datos.Train<-credit.Datos.Usados[credit.trainIdx,]
+credit.Datos.Test<-credit.Datos.Usados[-credit.trainIdx,]
+
+#Modificamos los niveles de la variable de clase en los datos de entrenamiento y test
+credit.Datos.Train[[credit.Vars.Salida]] <- factor(credit.Datos.Train[[credit.Vars.Salida]], 
+                                                  levels = c("+", "-"), 
+                                                  labels = c("pos", "neg"))
+
+credit.Datos.Test[[credit.Vars.Salida]] <- factor(credit.Datos.Test[[credit.Vars.Salida]], 
+                                                 levels = c("+", "-"), 
+                                                 labels = c("pos", "neg"))
+```
+
+
+## Modelo Simple: LDA
+
+Empezaremos probando el modelo simple lda (Linear Discriminant Analysis).
+Hemos decidido emplear lda como modelo simple por dos motivos principalmente:
+Dimensionalidad baja: Este modelo es útil para conjuntos de datos con un número moderado de características y es resistente a problemas de sobreajuste cuando las dimensiones no son excesivamente altas.
+Eficiencia computacional: LDA es computacionalmente rápido, ideal para datasets como este con un tamaño de muestra moderado (690 observaciones en nuestro caso).
+
+
+LDA asume que las variables predictoras son numéricas o, en algunos casos, categóricas binarias que pueden tratarse como numéricas.
+Si hay variables categóricas con más de dos niveles, deben transformarse en variables dummy antes del análisis (esto lo hacemos más adelante también en gbm y Nnet).
+
+```{r}
+library(caret)
+
+# Creamos variables dummy para el conjunto de entrenamiento (lda)
+dummy_train_lda <- dummyVars(~ ., data = credit.Datos.Train[credit.Vars.Entrada])
+data_processed_train_lda <- data.frame(predict(dummy_train_lda, newdata = credit.Datos.Train))
+
+# Creamos variables dummy para el conjunto de prueba (lda)
+dummy_test_lda <- dummyVars(~ ., data = credit.Datos.Test[credit.Vars.Entrada])
+data_processed_test_lda <- data.frame(predict(dummy_test_lda, newdata = credit.Datos.Test))
+
+# Añadimos la variable objetivo al final del conjunto de datos (lda)
+data_processed_train_lda$Target <- credit.Datos.Train[[credit.Vars.Salida]]
+data_processed_test_lda$Target <- credit.Datos.Test[[credit.Vars.Salida]]
+
+# Eliminamos variables constantes o con variación mínima
+nzv <- nearZeroVar(data_processed_train_lda, saveMetrics = TRUE)
+data_processed_train_lda <- data_processed_train_lda[, !nzv$nzv]
+data_processed_test_lda <- data_processed_test_lda[, colnames(data_processed_test_lda) %in% colnames(data_processed_train_lda)]
+
+# Calculamos la matriz de correlación
+cor_matrix <- cor(data_processed_train_lda[, -ncol(data_processed_train_lda)], use = "complete.obs")
+
+# Suprimimos las variables altamente correlacionadas
+high_corr <- findCorrelation(cor_matrix, cutoff = 0.9)
+
+# Aplicamos dicho filtro a las variables
+data_processed_train_lda <- data_processed_train_lda[, -high_corr]
+data_processed_test_lda <- data_processed_test_lda[, colnames(data_processed_test_lda) %in% colnames(data_processed_train_lda)]
+
+# Configuración de trainControl (lda)
+trControl_lda <- trainControl(
+  method = "repeatedcv", 
+  number = 10, 
+  repeats = 3
+)
+
+# Entrenamiento con LDA (lda)
+set.seed(1234)
+lda_model_lda <- train(
+  x = data_processed_train_lda[, -ncol(data_processed_train_lda)],  # Todas las columnas excepto la última
+  y = data_processed_train_lda$Target,                             # Variable objetivo
+  method = "lda",
+  trControl = trControl_lda,
+  preProcess = c("center", "scale")
+)
+
+# Resultados del modelo (lda)
+print(lda_model_lda)
+```
+
+Con lda obtenemos 0.858 de accuracy y 0.717 de kappa.
+
+
+Ahora usaremos un codigo sacado del pdf caret para poder hacer uso del pararellismo en el entrenamiento de los modelos.
+
+```{r}
+library(doParallel)
+library(caret)
+# Para usar múltiples cores
+useParallel<-FALSE # No lo usaremos en el tutorial
+debugFile <- NULL # Poner una cadena si se quiere volvar a un fichero la salida de los procesos
+if (useParallel) {
+require(doParallel)
+systemInfo<-Sys.info()
+logicalCores<-detectCores(logical=T)
+trueCores<-detectCores(logical=F)
+logCporTrueC=logicalCores/trueCores
+# No user todos los cores de la máaquina si se va a usar la consola o el GUI
+# deja siempre 1 libre o se queda calculando y no responde mientras al teclado
+workersToUse<-(trueCores-1)*logCporTrueC
+if (systemInfo["sysname"]=="Windows")
+require(foreach)
+if (is.null(debugFile))
+cl <- makeCluster(workersToUse)
+else
+cl<- makeCluster(workersToUse, outfile=debugFile)
+registerDoParallel(cl, cores=workersToUse)
+}
+```
+
+
+Seteamos una serie de variables para poder hacer uso de la validación cruzada y de la búsqueda de hiperparámetros.
+
+```{r}
+set.seed(1234)
+n_folds<-10
+n_reps<-3
+seedsLength=n_folds*n_reps
+seeds <- vector(mode = "list", length = seedsLength)
+# Crearemos unos pliegues para usar los mismos en todos los modelos diferentes
+foldIndexes<-createMultiFolds(credit.Datos.Train[[credit.Vars.Salida]],k=n_folds,times=n_reps)
+# combHParam es el número de combinaciones de hiper-parámetros a probar
+combHParam=100
+for(i in 1:seedsLength) seeds[[i]]<- sample.int(n=1000+combHParam, combHParam)
+# Creamos una semilla única para el modelo final a entrenar.
+seeds[[seedsLength+1]]<-sample.int(1000, 1)
+# TrainControl con seeds
+
+cl <- makeCluster(detectCores()-1)
+registerDoParallel(cl)
+set.seed(1234)
+```
+
+
+## Modelo Complejo: Random Forest (RF)
+
+Continuamos con el modelo Random Forest (RF), hemos decidido usarlo debido a que entre sus ventajas se encuntran:
+
+Manejo de variables categóricas y numéricas: RF puede manejar sin problemas variables categóricas y numéricas, comunes en el dataset.
+
+Robustez ante datos ruidosos: RF es resistente al ruido y puede identificar las características más relevantes, lo que es importante en un dataset donde algunas variables pueden tener poca influencia en la clasificación.
+
+No linealidad: A diferencia de LDA, RF no asume relaciones lineales entre las variables predictoras y el resultado.
+
+Prevención del sobreajuste: Mediante la técnica de ensamble (bagging), RF evita el sobreajuste en comparación con árboles de decisión individuales.
+
+Este modelo cuenta con 2 hiperparámetros:
+
+- mtry: número de variables seleccionadas al azar para evaluar en cada división del árbol.
+
+- ntree (oculto): representa cuantos árboles tiene el bosque. 
+
+```{r} 
+library(DMwR2)
+
+# Configuración de trainControl
+trControl_rf <- trainControl(method = "repeatedcv", 
+                          number = n_folds, 
+                          repeats = n_reps,
+                          index = foldIndexes,
+                          seeds = seeds,
+                          )
+
+tuneGrid_rf <- expand.grid(mtry = c( 3,4,5,6,8))
+
+
+# Entrenamiento con Random Forest
+set.seed(1234)
+rf_model <- train(
+  x = credit.Datos.Train[, -ncol(credit.Datos.Train)],  # Todas las columnas excepto la última
+  y = credit.Datos.Train[, ncol(credit.Datos.Train)],   # La última columna como variable objetivo
+  method = "rf",
+  trControl = trControl_rf,
+  tuneGrid = tuneGrid_rf,
+  ntree=500,
+)
+
+
+# Resultados del modelo
+print(rf_model)
+```
+
+Vamos a aumentar el umbral para mejorar la precisión del modelo. De esta manera, el modelo necesitará estar "más seguro" para predecir la clase positiva. En consecuencia, aumentaran los falsos negativos.
+
+Como el dataset representa si una solicitud de crédito será aprobada o no, consideramos que aumentar los falsos negativos no es un problema (el modelo predice que un crédito será rechazado cuando realmente estaría aprobado), ya que el objetivo del banco es la seguridad financiera y evitar pérdidas.
+
+
+```{r}
+# Configuración de trainControl
+trControl_rf_conservative <- trainControl(method = "repeatedcv", 
+                          number = n_folds, 
+                          repeats = n_reps,
+                          index = foldIndexes,
+                          seeds = seeds,
+                          classProbs = TRUE,           # Calcular probabilidades
+                          summaryFunction = twoClassSummary  # Para calcular sensibilidad, especificidad y ROC AUC
+                          )
+
+tuneGrid_rf_conservative <- expand.grid(mtry = c( 3,4,5,6,8))
+
+#Ahora entrenamos el modelo con los niveles corregidos
+set.seed(1234)
+rf_model_conservative <- train(
+    x = credit.Datos.Train[, -ncol(credit.Datos.Train)],
+    y = credit.Datos.Train[, ncol(credit.Datos.Train)],
+    method = "rf",
+    trControl = trControl_rf_conservative,
+    tuneGrid = tuneGrid_rf_conservative,
+    ntree = 1000,                # Más árboles para mayor estabilidad
+    metric = "ROC",             # Optimizar para especificidad (reducir falsos positivos)
+    maximize = TRUE,
+    importance = TRUE            # para analizar importancia de variables
+)
+
+
+#Mostramos resultados
+print(rf_model_conservative)
+
+```
+
+
+Tras haber ajustado el umbral con 0.6 y haber aumentado el número de ntree a 1000 hemos logrado obtener un ROC de 0.933, con mtry = 4.
+
+
+## Stochastic Gradient Boosting (GBM)
+
+Como segundo modelo complejo hemos escogido gbm (Stochastic Gradient Boosting) lo hemos escogido porque entre sus ventajas tenemos:
+
+Buena precisión: Vemos que coneseguimos un buen rendimiento.
+
+Manejo de datos complejos: Captura relaciones no lineales e interacciones entre variables.
+
+Flexibilidad: Admite tanto variables numéricas como categóricas.
+
+Regularización: Reduce el riesgo de sobreajuste con hiperparámetros como learning_rate y subsample.
+
+Optimización incremental: Supuestamente corrige errores iterativamente.
+
+Este modelo cuenta con 4 hiperparámetros:
+
+- n.tree: número de árboles que se crearán en el modelo.
+
+- interaction.depth : profundidad máxima de los árboles. Determina cuántas ramas puede tener cada árbol. 
+
+- shrinkage: representa la tasa de aprendizaje, que controla la contribución de cada árbol al modelo final.
+
+- n.minobsinnode: número mínimo de observaciones en cada nodo del árbol.
+
+
+
+
+```{r}
+library(caret)
+
+# Creamos variables dummy para el conjunto de entrenamiento
+dummy_train_gbm <- dummyVars(~ ., data = credit.Datos.Train[credit.Vars.Entrada])
+data_processed_train_gbm <- data.frame(predict(dummy_train_gbm, newdata = credit.Datos.Train))
+
+# Identificamos y eliminar dummies constantes (varianza cero)
+nzv <- nearZeroVar(data_processed_train_gbm, saveMetrics = TRUE)
+data_processed_train_gbm <- data_processed_train_gbm[, !nzv$nzv]
+
+# Creamos variables dummy para el conjunto de prueba
+data_processed_test_gbm <- data.frame(predict(dummy_train_gbm, newdata = credit.Datos.Test))
+
+# Eliminamos dummies constantes del conjunto de prueba
+data_processed_test_gbm <- data_processed_test_gbm[, colnames(data_processed_train_gbm)]
+
+# Añadimos la variable objetivo
+data_processed_train_gbm$Target <- credit.Datos.Train[[credit.Vars.Salida]]
+data_processed_test_gbm$Target <- credit.Datos.Test[[credit.Vars.Salida]]
+
+
+#Nos aseguramos de que las columnas coincidan
+missing_cols <- setdiff(names(data_processed_train_gbm), names(data_processed_test_gbm))
+if (length(missing_cols) > 0) {
+  data_processed_test_gbm[missing_cols] <- 0
+}
+data_processed_test_gbm <- data_processed_test_gbm[, names(data_processed_train_gbm)]
+
+#Grid de hiperparámetros para GBM
+gbm_grid <- expand.grid(
+  n.trees = c(150, 300, 500, 1000),
+  interaction.depth = c(3, 5, 7, 9),
+  shrinkage = c(0.001, 0.01, 0.1),
+  n.minobsinnode = c(5, 10)
+)
+
+#Configuración de trainControl
+trControl_gbm <- trainControl(
+  method = "repeatedcv", 
+  number = n_folds, 
+  repeats = n_reps,
+  index = foldIndexes,
+  seeds = seeds
+)
+#Nos aseguramos de que la variable objetivo sea un factor
+data_processed_train_gbm$Target <- as.factor(data_processed_train_gbm$Target)
+data_processed_test_gbm$Target <- as.factor(data_processed_test_gbm$Target)
+
+#Entrenar el modelo GBM
+set.seed(1234)
+gbm_model <- train(
+  x = data_processed_train_gbm[, -ncol(data_processed_train_gbm)],
+  y = data_processed_train_gbm$Target,
+  method = "gbm",
+  trControl = trControl_gbm,
+  tuneGrid = gbm_grid,
+  metric = "Accuracy",
+  preProcess = c("center", "scale", "YeoJohnson"),
+  verbose = FALSE,
+  distribution = "bernoulli"  # Específico para clasificación binaria
+)
+
+#Resultados del modelo
+print(gbm_model)
+```
+
+
+En gbm obtenemos para accuracy 0.8793859  y para kappa 0.7561425 con los siguientes valores para los hiperparámetros n.trees = 300, interaction.depth = 9, shrinkage = 0.01 and n.minobsinnode = 10.
+
+
+## Modelo Complejo: Neural Network (NNET)
+
+Por último, vamos a entrenar con nnet (Neural Network).
+Este modelo lo hemos escogido básicamente porque tiene una buena capacidad para modelar relaciones complejas.
+Supuestamente NNET es útil para capturar relaciones no lineales complejas entre las variables predictoras y la salida, lo que puede ser relevante en un problema de clasificación como el nuestro.
+
+Este modelo cuenta con 2 hiperparámetros:
+
+- size: número de nodos (neuronas) en la capa oculta.
+
+- decay: factor de penalización para los pesos de la red.
+
+```{r}
+library(caret)
+
+# Creamos variables dummy para el conjunto de entrenamiento (nnet)
+dummy_train_nnet <- dummyVars(~ ., data = credit.Datos.Train[credit.Vars.Entrada])
+data_processed_train_nnet <- data.frame(predict(dummy_train_nnet, newdata = credit.Datos.Train))
+
+# Identificar y eliminar dummies constantes (varianza cero)
+nzv_nnet <- nearZeroVar(data_processed_train_nnet, saveMetrics = TRUE)
+data_processed_train_nnet <- data_processed_train_nnet[, !nzv_nnet$nzv]
+
+# Creamos variables dummy para el conjunto de prueba 
+data_processed_test_nnet <- data.frame(predict(dummy_train_nnet, newdata = credit.Datos.Test))
+
+# Eliminar dummies constantes del conjunto de prueba
+data_processed_test_nnet <- data_processed_test_nnet[, colnames(data_processed_train_nnet)]
+
+# Añadimos la variable objetivo al final de los conjuntos (nnet)
+data_processed_train_nnet$Target <- credit.Datos.Train[[credit.Vars.Salida]]
+data_processed_test_nnet$Target <- credit.Datos.Test[[credit.Vars.Salida]]
+
+
+# Nos aseguramos de que las columnas del conjunto de prueba coincidan con las del conjunto de entrenamiento
+missing_cols <- setdiff(names(data_processed_train_nnet), names(data_processed_test_nnet))
+if (length(missing_cols) > 0) {
+  data_processed_test_nnet[missing_cols] <- 0  
+}
+data_processed_test_nnet <- data_processed_test_nnet[, names(data_processed_train_nnet)]  # Reordenar columnas
+
+# Configuración de trainControl (nnet)
+trControl_nnet <- trainControl(
+  method = "repeatedcv", 
+  number = n_folds, 
+  repeats = n_reps,
+  index = foldIndexes,
+  seeds = seeds
+)
+
+# Grid de hiperparámetros para nnet
+nnet_tuneGrid <- expand.grid(
+  size = c(2, 4, 6, 8),      
+  decay = c(0.01, 0.1, 0.5)  
+)
+
+# Variable objetivo es factor (nnet)
+data_processed_train_nnet$Target <- as.factor(data_processed_train_nnet$Target)
+
+# Entrenar el modelo (nnet)
+set.seed(1234)
+nnet_model <- train(
+  x = data_processed_train_nnet[, -ncol(data_processed_train_nnet)],  # Todas las columnas excepto la última
+  y = data_processed_train_nnet$Target,                              # Variable objetivo
+  method = "nnet",
+  trControl = trControl_nnet,
+  preProcess = c("center", "scale", "YeoJohnson"),
+  tuneGrid = nnet_tuneGrid
+)
+
+# Resultados del modelo (nnet)
+print(nnet_model)
+```
+
+Para NNET conseguimos un 0.8619841 de accuracy y un 0.7205693 para kappa. 
+Los hiperparámetros seleccionados son size = 6 y decay = 0.5.
+
+
+### Hiperparámetros
+
+Los hiperparametros que hemos utlizado los hemos obtenido a partir de ir probando diversas combinaciones a partir de una baremo inicial el cual hemos obtenido de ChatGPT.
+Hemos ido alterando los parámetros uno a uno para ir buscando los que nos daban los mejores resultados, una vez "encontrados", los hemos dejado como fijos para el entrenamiento.
+
+Ahora vamos a probar otro tipo de preprocesado, eliminando la variable A6. Recordemos que más arriba hicimos un análisis de correlación con el metodo Pearson y vimos que era una de las variables que no eran útiles.
+Procedemos a eliminarla y a volver a dividir el dataset en los datos de entrenamiento y de test.
+
+
+
+```{r}
+library(caret)
+set.seed(1234)
+
+# Nuevo conjunto de datos sin A6
+credit.Datos.Todo_no_A6 <- credit_clean[, !(names(credit_clean) %in% "A6")]
+
+# Configuramos las variables de entrada y salida
+credit.Vars.Salida <- c("A16")
+credit.Vars.Entrada_no_A6 <- setdiff(names(credit.Datos.Todo_no_A6), credit.Vars.Salida)
+
+# Conjunto de datos usado sin A6
+credit.Datos.Usados_no_A6 <- cbind(credit.Datos.Todo_no_A6[credit.Vars.Entrada_no_A6],
+                                   credit.Datos.Todo_no_A6[credit.Vars.Salida])
+
+# Dividir en conjunto de entrenamiento y prueba usando los mismos índices
+credit.Datos.Train_no_A6 <- credit.Datos.Usados_no_A6[credit.trainIdx, ]
+credit.Datos.Test_no_A6 <- credit.Datos.Usados_no_A6[-credit.trainIdx, ]
+
+# Verificar las estructuras
+str(credit.Datos.Train_no_A6)
+str(credit.Datos.Test_no_A6)
+
+```
+Para este nuevo preprocesado vamos a utilizar el modelo Random Forest (RF), ya que es el que mejor resultados nos ha dado. Vamos a aplicar un umbral de 0.7 y 0.6 para ver cómo afecta.
+
+
+```{r}
+#Modificamos los niveles de la variable de clase en los datos de entrenamiento y test
+credit.Datos.Train_no_A6[[credit.Vars.Salida]] <- factor(
+  credit.Datos.Train_no_A6[[credit.Vars.Salida]], 
+  levels = c("+", "-"), 
+  labels = c("pos", "neg")
+)
+
+credit.Datos.Test_no_A6[[credit.Vars.Salida]] <- factor(
+  credit.Datos.Test_no_A6[[credit.Vars.Salida]], 
+  levels = c("+", "-"), 
+  labels = c("pos", "neg")
+)
+
+#Configuración de trainControl
+trControl_rf_no_A6 <- trainControl(
+  method = "repeatedcv", 
+  number = n_folds, 
+  repeats = n_reps,
+  index = foldIndexes,
+  seeds = seeds,
+  summaryFunction = twoClassSummary,
+  classProbs = TRUE
+)
+
+#Grid de hiperparámetros
+tuneGrid_rf_no_A6 <- expand.grid(mtry = c(3, 4, 5, 6, 7))
+
+#Entrenamos
+set.seed(1234)
+rf_model_conservative_A6 <- train(
+  x = credit.Datos.Train_no_A6[, -which(names(credit.Datos.Train_no_A6) == credit.Vars.Salida)], 
+  y = credit.Datos.Train_no_A6[[credit.Vars.Salida]],
+  method = "rf",
+  trControl = trControl_rf_no_A6,
+  tuneGrid = tuneGrid_rf_no_A6,
+  ntree = 1000,
+  metric = "Spec",
+  importance = TRUE
+)
+#Resultados del modelo
+print("Resultados del modelo:")
+print(rf_model_conservative_A6)
+```
+
+Para este nuevo preprocesado el modelo ha seleccionado mtry = 3, con un ROC de 0.9293009.
+
+## Sección 3: Comparación y selección del modelo final.
+
+
+```{r}
+
+
+getAccModelList <- function(modelList) {
+  
+  test_acc <- function(model, data, varSal, propMaxClass) {
+    # Verificar si la variable de salida existe en los datos
+    if (!(varSal %in% names(data))) {
+      stop(paste("La variable de salida", varSal, "no existe en los datos proporcionados."))
+    }
+
+    # Calculamos (NIR)
+    tbl <- table(data[[varSal]])
+    propMaxClass <- max(tbl) / sum(tbl)
+
+    # Usamos el predict
+    pred <- predict(model, data[, !names(data) %in% varSal, drop = FALSE])
+
+    # Sacamos los aciertos
+    verificados <- sum(pred == data[[varSal]])
+    n <- nrow(data)
+
+    # Porcentaje de exactitud
+    accuracy <- verificados / n
+
+    # Test binomial 
+    t1 <- binom.test(verificados, n, conf.level = 0.95)
+    lowerCI <- t1$conf.int[1]
+    upperCI <- t1$conf.int[2]
+
+    # Test Accuracy > NIR
+    t2 <- binom.test(verificados, n, p = propMaxClass, alternative = "greater")
+    pval_AccMayorNIR <- t2$p.value
+
+    c(lowerCI, accuracy, upperCI, pval_AccMayorNIR, propMaxClass)
+  }
+
+  out <- lapply(modelList, function(entry) {
+    model <- entry$model
+    data <- entry$data
+    varSal <- entry$varSalida
+
+    # Validar que el conjunto de datos no esté vacío
+    if (nrow(data) == 0) {
+      stop("El conjunto de datos está vacío para uno de los modelos.")
+    }
+
+    test_acc(model, data, varSal, propMaxClass = NULL)
+  })
+
+  out <- do.call("rbind", out)
+  colnames(out) <- c("lowerCI95", "Accuracy", "upperCI95", "pvalAcc>NIR", "NIR")
+
+  as.data.frame(out)
+}
+
+ModelList <- list(
+  LDA = list(model = lda_model_lda, data = data_processed_test_lda, varSalida = "Target"),
+  RF = list(model = rf_model, data = credit.Datos.Test, varSalida = "A16"),
+  GBM = list(model = gbm_model, data = data_processed_test_gbm, varSalida = "Target"),
+  NNET = list(model = nnet_model, data = data_processed_test_nnet, varSalida = "Target")
+)
+
+# Obtenemos resultados
+results <- getAccModelList(ModelList)
+
+results_formatted <- format(results, digits = 2, nsmall = 3, scientific = FALSE)
+
+# Mostrar los resultados
+print(results_formatted)
+
+#Obtener predicciones con probabilidades
+rf_probs <- predict(rf_model_conservative, 
+                   newdata = credit.Datos.Test[, -ncol(credit.Datos.Test)], 
+                   type = "prob")
+
+#Ajustamos el umbral 
+umbral <- 0.6
+rf_pred_conservative <- factor(ifelse(rf_probs[,"pos"] > umbral, "pos", "neg"), 
+                             levels = c("pos", "neg"))
+
+#Evaluamos modelo con el nuevo umbral
+conf_matrix_conservative <- confusionMatrix(rf_pred_conservative, 
+                                          credit.Datos.Test[[credit.Vars.Salida]], 
+                                          positive = "pos")
+
+print("Matriz de confusión con umbral ajustado:")
+print(conf_matrix_conservative)
+
+#Predicciones con probabilidades
+rf_probs_no_A6 <- predict(rf_model_conservative_A6, 
+                          newdata = credit.Datos.Test_no_A6, 
+                          type = "prob")
+
+#Verificar nombres de columnas en rf_probs_no_A6
+print("Nombres de las columnas en rf_probs_no_A6:")
+print(colnames(rf_probs_no_A6))
+
+#Aplicar umbral(0.7)
+umbral <- 0.7
+rf_pred_conservative <- factor(
+  ifelse(rf_probs_no_A6[, "pos"] > umbral, "pos", "neg"), 
+  levels = c("pos", "neg")
+)
+
+#Matriz de confusión con umbral ajustado
+print("\nMatriz de confusión con umbral ajustado (0.7):")
+conf_matrix_umbral <- confusionMatrix(
+  rf_pred_conservative, 
+  credit.Datos.Test_no_A6[[credit.Vars.Salida]], 
+  positive = "pos"
+)
+print(conf_matrix_umbral)
+
+#Aplicar umbral(0.6)
+umbral <- 0.6
+rf_pred_conservative <- factor(
+  ifelse(rf_probs_no_A6[, "pos"] > umbral, "pos", "neg"), 
+  levels = c("pos", "neg")
+)
+
+#Matriz de confusión con umbral ajustado
+print("\nMatriz de confusión con umbral ajustado (0.6):")
+conf_matrix_umbral <- confusionMatrix(
+  rf_pred_conservative, 
+  credit.Datos.Test_no_A6[[credit.Vars.Salida]], 
+  positive = "pos"
+)
+print(conf_matrix_umbral)
+
+
+
+
+```
+
+
+
+```{r}
+# para parar el uso de paralelo
+if (useParallel) {
+require(doParallel)
+stopImplicitCluster()
+stopCluster(cl)
+registerDoSEQ()
+}
+```
+
+
+
+
+
+
+
